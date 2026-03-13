@@ -230,19 +230,75 @@ def generate_client_info(n: int) -> pd.DataFrame:
     })
 
 def generate_income_info(n: int, countries_list: np.ndarray) -> pd.DataFrame:
+    """
+    Generate synthetic financial and economic information for a set of individuals.
 
-    salaries = np.array([
-        stats.lognorm.rvs(
-            s=0.7,
-            scale=COUNTRY_MEDIAN_SALARY_USD[country]
-        )
-        for country in countries_list
-    ])
+    This function simulates income-related variables using probabilistic
+    distributions commonly observed in real-world economic data. The generated
+    variables include salary, bonuses, expenses, savings behavior, and net worth.
+    The simulation incorporates country-specific economic parameters such as
+    median salaries and minimum wages.
 
-    bonus_rate = np.array([
-        stats.lognorm.rvs(s=0.1, scale=0.08 + salary / COUNTRY_MEDIAN_SALARY_USD[country])
-        for country, salary in zip(countries_list, salaries)
-    ])
+    Distributions used:
+        - Lognormal distribution for salaries and bonus rates (income tends to be right-skewed).
+        - Normal distribution for expense ratios (centered around typical spending behavior).
+        - Beta distribution for savings rates (bounded percentage values).
+        - Pareto distribution for net worth (models wealth inequality).
+
+    Args:
+        n (int):
+            Number of individuals to simulate.
+
+        countries_list (np.ndarray):
+            Array of country names corresponding to each individual.
+            The values are used to retrieve country-specific parameters
+            such as median salaries and minimum wages.
+
+    Returns:
+        pd.DataFrame:
+            A pandas DataFrame containing the following synthetic financial variables:
+
+            - monthly_salary_usd (float):
+                Simulated monthly salary in USD, generated using a lognormal
+                distribution centered around the country's median salary.
+
+            - annual_bonus_usd (float):
+                Annual bonus amount in USD, derived from a stochastic bonus
+                rate applied to yearly salary.
+
+            - monthly_expenses_usd (float):
+                Estimated monthly expenses in USD, calculated as the sum of
+                a country's minimum wage baseline and a variable proportion
+                of the individual's salary.
+
+            - savings_rate (float):
+                Proportion of income saved by the individual. Typically between
+                0 and 1, but may become negative if expenses exceed income.
+
+            - net_worth_usd (float):
+                Total estimated net worth in USD, generated using a Pareto
+                distribution to simulate wealth inequality. A fraction of
+                individuals may have negative net worth to represent debt.
+
+    Notes:
+        - The function assumes the existence of the following global dictionaries:
+            COUNTRY_MEDIAN_SALARY_USD
+            COUNTRY_MIN_WAGE_USD
+
+        - Values are rounded for readability but remain suitable for
+          statistical analysis or synthetic dataset generation.
+
+        - The generated data is intended for simulations, testing,
+          machine learning experiments, or synthetic data pipelines.
+    """
+
+    medians = np.array([COUNTRY_MEDIAN_SALARY_USD[c] for c in countries_list])
+
+    salaries = stats.lognorm.rvs(s=0.7, scale=medians, size=n)
+
+    bonus_scale = 0.08 + salaries / medians
+
+    bonus_rate = stats.lognorm.rvs(s=0.1, scale=bonus_scale, size=n)
 
     annual_bonus_usd = salaries * 12 * bonus_rate
 
@@ -268,4 +324,266 @@ def generate_income_info(n: int, countries_list: np.ndarray) -> pd.DataFrame:
         "monthly_expenses_usd": np.round(monthly_expenses_usd, 2),
         "savings_rate": np.round(savings_rate, 4),
         "net_worth_usd": np.round(net_worth_usd, 2),
+    })
+
+def generate_bank_account_info(
+    n: int,
+    salary: np.ndarray,
+    net_worth: np.ndarray
+) -> pd.DataFrame:
+    """
+    Generate synthetic banking account information for a set of individuals.
+
+    This function simulates common banking attributes such as account balances,
+    account types, account age, number of financial products, and premium
+    customer status. The generated variables are designed to mimic realistic
+    financial behaviors observed in retail banking systems.
+
+    Several probabilistic models are used to produce plausible relationships
+    between financial variables. In particular, an individual's probability of
+    being a premium client is influenced by their net worth, and their account
+    balance is derived from their monthly salary and simulated savings behavior.
+
+    Distributions used:
+        - Logistic function for premium client probability based on net worth.
+        - Bernoulli distribution to determine premium client status.
+        - Lognormal distribution to simulate the number of months of salary saved.
+        - Uniform distribution to model the age of the bank account.
+        - Poisson distribution to generate the number of banking products owned.
+        - Categorical distribution to determine account type.
+
+    Args:
+        n (int):
+            Number of individuals (bank clients) to simulate.
+
+        salary (np.ndarray):
+            Array containing the monthly salary (in USD) for each individual.
+            This variable is used to estimate account balances by modeling
+            how many months of salary have been accumulated as savings.
+
+        net_worth (np.ndarray):
+            Array containing the total net worth (in USD) of each individual.
+            This value influences the probability that a client is classified
+            as a premium banking customer.
+
+    Returns:
+        pd.DataFrame:
+            A pandas DataFrame containing the following synthetic banking variables:
+
+            - account_balance_usd (float):
+                Estimated account balance in USD. This value is calculated as
+                the product of monthly salary and a stochastic number of months
+                of accumulated savings generated from a lognormal distribution.
+                The distribution is truncated to prevent unrealistic values.
+
+            - account_type (str):
+                Type of bank account held by the client. Possible values include:
+                "checking", "savings", or "premium". Premium clients are more
+                likely to hold premium accounts, while standard clients are
+                distributed between checking and savings accounts.
+
+            - account_age_years (float):
+                Age of the bank account in years, simulated using a uniform
+                distribution between 1 and 20 years. This represents the length
+                of the relationship between the client and the bank.
+
+            - num_products (int):
+                Number of banking products owned by the client, such as credit
+                cards, loans, savings accounts, or investment products. This
+                variable is generated using a Poisson distribution to model
+                discrete event counts, with a minimum of one product per client.
+
+            - is_premium_client (int):
+                Binary indicator (0 or 1) specifying whether the client is
+                classified as a premium banking customer. The probability of
+                being premium is determined using a logistic function of the
+                individual's net worth, reflecting the tendency for wealthier
+                clients to receive premium banking services.
+
+    Notes:
+        - Negative net worth values are clipped to zero when calculating the
+          premium client probability, ensuring that indebted individuals do
+          not receive artificially inflated probabilities.
+
+        - Account balances are derived from salary-based savings behavior
+          rather than directly from net worth, which helps maintain realistic
+          correlations between income and liquid assets.
+
+        - The Poisson distribution used for the number of banking products
+          reflects the fact that most customers own a small number of financial
+          products, while a minority hold several.
+
+        - The generated dataset is suitable for financial simulations,
+          machine learning experiments, banking analytics prototypes,
+          and synthetic data pipelines.
+    """
+
+    net_worth_positive = np.clip(net_worth, 0, None)
+
+    premium_probability = 1 / (1 + np.exp(-net_worth_positive / 50000))
+    premium_probability = np.clip(premium_probability, 0.01, 0.95)
+
+    is_premium_client = np.random.binomial(1, premium_probability, size=n)
+
+    months_saved = stats.lognorm.rvs(s=0.8, scale=2.5, size=n)
+    months_saved = np.clip(months_saved, 0.1, 24)
+
+    account_balance = salary * months_saved
+
+    account_type = np.where(
+        is_premium_client == 1,
+        np.random.choice(["premium", "savings"], size=n, p=[0.7, 0.3]),
+        np.random.choice(["checking", "savings"], size=n, p=[0.6, 0.4])
+    )
+
+    account_age_years = np.random.uniform(1, 20, size=n)
+
+    num_products = stats.poisson.rvs(mu=2.2, size=n) + 1
+    num_products = np.clip(num_products, 1, 10)
+
+    return pd.DataFrame({
+        "account_balance_usd": np.round(account_balance, 2),
+        "account_type": account_type,
+        "account_age_years": np.round(account_age_years, 1),
+        "num_products": num_products,
+        "is_premium_client": is_premium_client
+    })
+
+def generate_transaction_info(
+    n: int,
+    salary: np.ndarray,
+    is_premium: np.ndarray
+) -> pd.DataFrame:
+    """
+    Generate synthetic monthly banking transaction behavior.
+
+    This function simulates transactional activity for a set of banking
+    clients over a monthly period. The generated variables model realistic
+    digital banking behavior, including the number of transactions,
+    transaction sizes, failed payments, international activity,
+    preferred banking channel, and user engagement with online services.
+
+    The simulation relies on several probability distributions commonly
+    used to represent financial and behavioral data. In particular,
+    discrete distributions are used for event counts (such as the number
+    of transactions), while continuous distributions are used for
+    monetary values, time intervals, and proportions.
+
+    Premium clients are modeled as more active users of banking services,
+    performing more transactions, having higher transaction volumes,
+    and engaging more frequently in international transactions.
+
+    Distributions used:
+        - Poisson distribution for the number of monthly transactions
+          and failed transactions (counts of events in a fixed time period).
+        - Exponential distribution for transaction amounts and time since
+          last login (many small values with fewer large values).
+        - Beta distribution for the percentage of international
+          transactions (bounded between 0 and 1).
+        - Categorical distribution for preferred banking channel.
+
+    Parameters
+    ----------
+    n : int
+        Number of clients to simulate.
+
+    salary : np.ndarray
+        Array containing the monthly salary (in USD) for each client.
+        Salary influences the expected size of transactions, assuming
+        that higher-income individuals tend to perform larger financial
+        transactions on average.
+
+    is_premium : np.ndarray
+        Binary array indicating whether a client is classified as
+        a premium banking customer (1) or a standard customer (0).
+        Premium clients are assumed to perform more transactions,
+        transact larger amounts, and have a slightly higher share
+        of international payments.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing synthetic transactional variables:
+
+        - monthly_transactions (int):
+            Total number of transactions performed during the month.
+            Generated using a Poisson distribution with different
+            expected values depending on premium status.
+
+        - avg_transaction_amount_usd (float):
+            Average monetary value of a transaction in USD. This value
+            is generated using an exponential distribution scaled by
+            the client's salary to reflect realistic spending behavior.
+
+        - failed_transactions (int):
+            Number of failed transactions during the month, such as
+            declined payments, insufficient funds, or technical errors.
+            Simulated using a low-rate Poisson distribution.
+
+        - international_txn_pct (float):
+            Proportion of transactions that are international
+            (values between 0 and 1). This variable is generated using
+            a Beta distribution, producing realistic skew toward
+            low percentages. Premium clients tend to have slightly
+            higher international activity.
+
+        - preferred_channel (str):
+            Client's primary banking interaction channel. Possible values:
+            "app", "web", "branch", or "ATM". The probabilities reflect
+            modern banking behavior where mobile applications dominate.
+
+        - last_login_days_ago (int):
+            Number of days since the client's last login to the banking
+            platform. Generated using an exponential distribution,
+            reflecting the tendency for most users to log in frequently
+            while some remain inactive for longer periods.
+
+    Notes
+    -----
+    - The Poisson distribution is used for modeling discrete event counts
+      such as transactions or failures within a fixed time window.
+
+    - The exponential distribution captures the heavy concentration of
+      small financial transactions with occasional larger values.
+
+    - The Beta distribution ensures that percentages remain bounded
+      between 0 and 1 while allowing flexible skew toward lower values.
+
+    - The generated dataset can be used for simulations, financial
+      analytics prototypes, synthetic banking datasets, behavioral
+      modeling, or machine learning experiments such as fraud detection,
+      churn prediction, or transaction pattern analysis.
+    """
+
+    txn_mu = np.where(is_premium == 1, 25, 12)
+    monthly_transactions = stats.poisson.rvs(mu=txn_mu, size=n)
+    monthly_transactions = np.clip(monthly_transactions, 1, 100)
+
+    avg_txn_amount = stats.expon.rvs(scale=salary * 0.15, size=n)
+    avg_txn_amount = np.clip(avg_txn_amount, 1, salary * 3)
+
+    failed_transactions = stats.poisson.rvs(mu=1.2, size=n)
+
+    international_txn_pct = stats.beta.rvs(a=1.2, b=8, size=n)
+    international_txn_pct = np.where(is_premium == 1,
+                                      international_txn_pct * 1.5,
+                                      international_txn_pct)
+    international_txn_pct = np.clip(international_txn_pct, 0, 1)
+
+    preferred_channel = np.random.choice(
+        ["app", "web", "branch", "ATM"],
+        size=n,
+        p=[0.50, 0.25, 0.15, 0.10]
+    )
+
+    last_login_days_ago = stats.expon.rvs(scale=4, size=n).astype(int)
+    last_login_days_ago = np.clip(last_login_days_ago, 0, 365)
+
+    return pd.DataFrame({
+        "monthly_transactions": monthly_transactions,
+        "avg_transaction_amount_usd": np.round(avg_txn_amount, 2),
+        "failed_transactions": failed_transactions,
+        "international_txn_pct": np.round(international_txn_pct, 4),
+        "preferred_channel": preferred_channel,
+        "last_login_days_ago": last_login_days_ago
     })
