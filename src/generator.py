@@ -137,7 +137,7 @@ def phone_for_country(country: str) -> str:
     try:
         return Faker(locale).phone_number()
     except Exception:
-        return Faker("es_ES").phone_number()
+        return Faker("en_US").phone_number()
 
 def generate_email(first_name: str, last_name: str) -> str:
     """
@@ -296,9 +296,8 @@ def generate_income_info(n: int, countries_list: np.ndarray) -> pd.DataFrame:
 
     salaries = stats.lognorm.rvs(s=0.7, scale=medians, size=n)
 
-    bonus_scale = 0.08 + salaries / medians
 
-    bonus_rate = stats.lognorm.rvs(s=0.1, scale=bonus_scale, size=n)
+    bonus_rate = stats.beta.rvs(a=2, b=8, size=n)
 
     annual_bonus_usd = salaries * 12 * bonus_rate
 
@@ -311,8 +310,10 @@ def generate_income_info(n: int, countries_list: np.ndarray) -> pd.DataFrame:
     savings_rate = np.where(
         monthly_expenses_usd < salaries,
         raw_savings,
-        np.random.uniform(-0.2, 0, size=n)
+        np.random.uniform(-0.15, 0.05, size=n)
     )
+
+    debt_to_income = monthly_expenses_usd / salaries
 
     net_worth_usd = stats.pareto.rvs(b=1.5, size=n) * salaries * 12
     is_in_debt = np.random.random(size=n) < 0.15
@@ -322,6 +323,7 @@ def generate_income_info(n: int, countries_list: np.ndarray) -> pd.DataFrame:
         "monthly_salary_usd": np.round(salaries, 2),
         "annual_bonus_usd": np.round(annual_bonus_usd, 2),
         "monthly_expenses_usd": np.round(monthly_expenses_usd, 2),
+        "debt_to_income": debt_to_income,
         "savings_rate": np.round(savings_rate, 4),
         "net_worth_usd": np.round(net_worth_usd, 2),
     })
@@ -438,6 +440,20 @@ def generate_bank_account_info(
 
     account_age_years = np.random.uniform(1, 20, size=n)
 
+    join_dates = [
+        date(
+            date.today().year - int(account_year),
+            random.randint(1, 12),
+            random.randint(1, 28)
+        )
+        for account_year in account_age_years
+    ]
+
+    customer_tenure_days = [
+        (date.today() - join_date).days
+        for join_date in join_dates
+    ]
+
     num_products = stats.poisson.rvs(mu=2.2, size=n) + 1
     num_products = np.clip(num_products, 1, 10)
 
@@ -445,6 +461,8 @@ def generate_bank_account_info(
         "account_balance_usd": np.round(account_balance, 2),
         "account_type": account_type,
         "account_age_years": np.round(account_age_years, 1),
+        "join_date": join_dates,
+        "customer_tenure_days": customer_tenure_days,
         "num_products": num_products,
         "is_premium_client": is_premium_client
     })
@@ -579,11 +597,191 @@ def generate_transaction_info(
     last_login_days_ago = stats.expon.rvs(scale=4, size=n).astype(int)
     last_login_days_ago = np.clip(last_login_days_ago, 0, 365)
 
+    last_transaction_date = [
+        date.today() - timedelta(days=int(last_login_day) + random.randint(0, 10))
+        for last_login_day in last_login_days_ago
+    ]
+
     return pd.DataFrame({
         "monthly_transactions": monthly_transactions,
         "avg_transaction_amount_usd": np.round(avg_txn_amount, 2),
         "failed_transactions": failed_transactions,
         "international_txn_pct": np.round(international_txn_pct, 4),
         "preferred_channel": preferred_channel,
-        "last_login_days_ago": last_login_days_ago
+        "last_login_days_ago": last_login_days_ago,
+        "last_transaction_date" : last_transaction_date
     })
+
+def generate_credit_info(
+    n: int,
+    salary: np.ndarray,
+    debt_to_income: np.ndarray
+) -> pd.DataFrame:
+    """
+    Generate synthetic credit profile information for a set of clients.
+
+    This function simulates key credit-related variables commonly used in
+    financial risk analysis, credit scoring models, and lending decisions.
+    The generated variables approximate realistic relationships between
+    income, debt burden, credit quality, and repayment behavior.
+
+    The simulation combines several probability distributions and simple
+    financial rules to produce plausible credit profiles. In particular,
+    credit scores are generated using a bounded transformation of a Beta
+    distribution, loan counts are modeled with a Poisson process, and
+    repayment behavior is simulated using Beta distributions to represent
+    percentages.
+
+    Additionally, a logistic function is used to approximate the probability
+    of loan default based on the client's credit quality and debt burden.
+    Higher credit scores decrease default risk, while higher debt-to-income
+    ratios increase it.
+
+    Distributions used
+    ------------------
+    - Beta distribution:
+        Used to simulate credit score quality and repayment behavior
+        percentages. Beta is appropriate for bounded variables such
+        as proportions or normalized scores.
+
+    - Poisson distribution:
+        Used to model the number of active loans, representing the
+        count of discrete financial obligations held by a client.
+
+    - Logistic function:
+        Used to approximate the probability of loan default based on
+        financial characteristics such as credit score and debt burden.
+
+    Parameters
+    ----------
+    n : int
+        Number of clients to simulate.
+
+    salary : np.ndarray
+        Monthly salary of each client in USD. Income influences the
+        maximum credit card limit assigned to the client.
+
+    debt_to_income : np.ndarray
+        Debt-to-income ratio (DTI) for each client. This represents
+        the proportion of monthly income used to service existing
+        debt obligations and is commonly used in credit risk models.
+        Higher values indicate greater financial stress.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing synthetic credit variables:
+
+        credit_score : int
+            Simulated credit score between 300 and 850. The score is
+            generated by drawing from a Beta distribution and scaling
+            the result to match the typical FICO score range.
+
+        num_loans : int
+            Number of active loans or credit obligations held by the
+            client. Generated using a Poisson distribution to represent
+            the count of discrete financial commitments.
+
+        loan_default_risk : float
+            Estimated probability of loan default (between 0 and 1).
+            This value is computed using a logistic function combining
+            normalized credit score and debt-to-income ratio.
+
+        credit_card_limit_usd : float
+            Estimated credit card limit assigned to the client. The
+            limit depends on both income level and credit score, with
+            higher-income and higher-score clients receiving larger
+            limits.
+
+        payment_on_time_pct : float
+            Percentage of payments made on time (between 0 and 1).
+            Clients with higher estimated default risk tend to have
+            lower on-time payment rates.
+
+    Notes
+    -----
+    - Credit scores are simulated within the typical FICO range
+      of 300 to 850 using a linear transformation of a Beta-distributed
+      variable.
+
+    - The Poisson distribution is used to model loan counts because
+      it naturally represents the number of discrete events occurring
+      in a population.
+
+    - The logistic function used for default risk ensures that the
+      output remains bounded between 0 and 1 while capturing nonlinear
+      relationships between financial variables.
+
+    - Payment behavior is modeled using Beta distributions because
+      repayment percentages are naturally bounded between 0 and 1
+      and tend to cluster near high values for most borrowers.
+
+    - This synthetic dataset can be useful for simulations,
+      credit risk modeling, machine learning experiments,
+      or financial analytics prototypes when real banking
+      data is unavailable due to privacy constraints.
+    """
+
+    raw_score = stats.beta.rvs(a=5, b=2, size=n)
+    credit_score = (raw_score * 550 + 300).astype(int)
+    credit_score = np.clip(credit_score, 300, 850)
+
+    num_loans = stats.poisson.rvs(mu=1.5, size=n)
+    num_loans = np.clip(num_loans, 0, 8)
+
+    normalized_score = (credit_score - 300) / 550
+    loan_default_risk = 1 / (1 + np.exp(5 * normalized_score - 3 * debt_to_income - 1))
+    loan_default_risk = np.clip(loan_default_risk, 0.01, 0.99)
+
+    score_factor = credit_score / 850
+    credit_card_limit = salary * 3 * score_factor
+    credit_card_limit = np.clip(credit_card_limit, 500, 50000)
+
+    payment_on_time_pct = stats.beta.rvs(a=8, b=2, size=n)
+    payment_on_time_pct = np.where(
+        loan_default_risk > 0.5,
+        stats.beta.rvs(a=2, b=5, size=n),
+        payment_on_time_pct
+    )
+
+    return pd.DataFrame({
+        "credit_score": credit_score,
+        "num_loans": num_loans,
+        "loan_default_risk": np.round(loan_default_risk, 4),
+        "credit_card_limit_usd": np.round(credit_card_limit, 2),
+        "payment_on_time_pct": np.round(payment_on_time_pct, 4)
+    })
+
+
+def generate_dataset(n: int = 1000) -> pd.DataFrame:
+    client_df = generate_client_info(n)
+    income_df = generate_income_info(n, client_df["country"].values)
+    bank_df = generate_bank_account_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        income_df["net_worth_usd"].values
+    )
+    txn_df = generate_transaction_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        bank_df["is_premium_client"].values
+    )
+    credit_df = generate_credit_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        income_df["debt_to_income"]
+    )
+
+    df = pd.concat([client_df, income_df, bank_df, txn_df, credit_df], axis=1)
+
+    from pathlib import Path
+
+    BASE_DIR = Path(__file__).parent.parent
+    DATA_DIR = BASE_DIR / "data"
+    DATA_DIR.mkdir(exist_ok=True)
+
+    df.to_csv(DATA_DIR / "synthetic_finance.csv", index=False)
+    return df
+
+generate_dataset()
+print("👍")
