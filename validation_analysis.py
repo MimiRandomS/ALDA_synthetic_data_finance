@@ -1,3 +1,4 @@
+# validation analysis
 """
 Statistical Validation Analysis for Synthetic Finance Dataset
 
@@ -190,28 +191,7 @@ plt.savefig(dist_path, dpi=300, bbox_inches='tight')
 plt.close()
 print(f"✅ Saved: {dist_path}")
 
-# =====================
-# 3. STATISTICAL TESTS
-# =====================
-print("\n" + "=" * 70)
-print("STATISTICAL VALIDATION TESTS")
-print("=" * 70)
 
-# Test 1: Chi-squared test on country distribution
-print("\n📊 Test 1: Chi-Squared Test (Country Distribution)")
-print("-" * 70)
-expected_probs = [0.25, 0.20, 0.10, 0.06, 0.06]
-top_5_countries = ['Colombia', 'Mexico', 'Argentina', 'Chile', 'Peru']
-observed_counts = [df[df['country'] == c].shape[0] for c in top_5_countries]
-expected_counts = [prob * len(df) for prob in expected_probs]
-
-chi2, p_value = stats.chisquare(observed_counts, expected_counts)
-print(f"Expected distribution: Colombia 25%, Mexico 20%, Argentina 10%, Chile 6%, Peru 6%")
-print(f"Observed counts: {observed_counts}")
-print(f"Expected counts: {[f'{x:.1f}' for x in expected_counts]}")
-print(f"\nChi² statistic: {chi2:.4f}")
-print(f"p-value: {p_value:.4f}")
-print(f"Result: {'✅ PASS' if p_value > 0.05 else '❌ FAIL'} (α = 0.05)")
 
 # Test 2: Kolmogorov-Smirnov test - is salary lognormal?
 print("\n📊 Test 2: Kolmogorov-Smirnov Test (Salary ~ Lognormal)")

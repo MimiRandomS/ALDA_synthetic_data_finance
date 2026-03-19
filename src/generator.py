@@ -1,3 +1,4 @@
+# generator
 import random
 import numpy as np
 import pandas as pd
@@ -754,6 +755,7 @@ def generate_credit_info(
 
 
 def generate_dataset(n: int = 1000) -> pd.DataFrame:
+    """Generate small dataset and return DataFrame"""
     client_df = generate_client_info(n)
     income_df = generate_income_info(n, client_df["country"].values)
     bank_df = generate_bank_account_info(
@@ -783,5 +785,75 @@ def generate_dataset(n: int = 1000) -> pd.DataFrame:
     df.to_csv(DATA_DIR / "synthetic_finance.csv", index=False)
     return df
 
-generate_dataset()
-print("👍")
+
+def generate_large_dataset(total_n: int = 100000, chunk_size: int = 10000):
+    """
+    Generate large datasets in chunks to avoid memory issues
+
+    Args:
+        total_n: Total number of records to generate
+        chunk_size: Number of records per chunk (default 10k)
+    """
+    from pathlib import Path
+    import time
+
+    BASE_DIR = Path(__file__).parent.parent
+    DATA_DIR = BASE_DIR / "data"
+    DATA_DIR.mkdir(exist_ok=True)
+
+    output_path = DATA_DIR / "synthetic_finance.csv"
+
+    print(f"🚀 Generating {total_n:,} records in chunks of {chunk_size:,}...")
+    start_time = time.time()
+
+    # Generate first chunk with headers
+    print(f"   Chunk 1/{(total_n + chunk_size - 1) // chunk_size}...", end=" ")
+    chunk_start = time.time()
+    first_chunk = _generate_chunk(chunk_size)
+    first_chunk.to_csv(output_path, index=False, mode='w')
+    print(f"✅ ({time.time() - chunk_start:.1f}s)")
+
+    # Generate remaining chunks and append
+    remaining = total_n - chunk_size
+    chunk_num = 2
+    for i in range(0, remaining, chunk_size):
+        current_chunk_size = min(chunk_size, remaining - i)
+        print(f"   Chunk {chunk_num}/{(total_n + chunk_size - 1) // chunk_size}...", end=" ")
+        chunk_start = time.time()
+        chunk = _generate_chunk(current_chunk_size)
+        chunk.to_csv(output_path, index=False, mode='a', header=False)
+        print(f"✅ ({time.time() - chunk_start:.1f}s)")
+        chunk_num += 1
+
+    elapsed = time.time() - start_time
+    print(f"\n✅ Generated {total_n:,} records in {elapsed:.1f}s ({total_n / elapsed:.0f} rows/sec)")
+    print(f"📁 Saved to: {output_path}")
+
+
+def _generate_chunk(n: int) -> pd.DataFrame:
+    """Generate a single chunk of data (internal helper)"""
+    client_df = generate_client_info(n)
+    income_df = generate_income_info(n, client_df["country"].values)
+    bank_df = generate_bank_account_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        income_df["net_worth_usd"].values
+    )
+    txn_df = generate_transaction_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        bank_df["is_premium_client"].values
+    )
+    credit_df = generate_credit_info(
+        n,
+        income_df["monthly_salary_usd"].values,
+        income_df["debt_to_income"]
+    )
+
+    return pd.concat([client_df, income_df, bank_df, txn_df, credit_df], axis=1)
+
+
+if __name__ == "__main__":
+    # Generate 1 million records in chunks
+    generate_large_dataset(total_n=100_000, chunk_size=10_000)
+    print("👍")
