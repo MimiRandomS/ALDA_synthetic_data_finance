@@ -15,30 +15,33 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from src.generator import generate_dataset, generate_client_info, generate_income_info, generate_bank_account_info, \
-    generate_transaction_info, generate_credit_info
+from src.generator import (
+    _generate_chunk,
+    generate_client_info,
+    generate_income_info,
+    generate_bank_account_info,
+    generate_transaction_info,
+    generate_credit_info,
+)
 
 
 class TestDataStructure:
     """Test basic data structure and schema"""
 
-    def test_generate_dataset_creates_file(self, tmp_path):
-        """Test that generate_dataset creates CSV file"""
-        # This test would need modification of generator.py to accept output path
-        # For now, just test that function runs
-        df = generate_dataset(100)
+    def test_generate_chunk_returns_dataframe(self):
+        """Test that _generate_chunk returns a DataFrame of the correct size"""
+        df = _generate_chunk(100)
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 100
 
     def test_correct_number_of_columns(self):
         """Test dataset has expected number of columns"""
-        df = generate_dataset(50)
-        # Should have 32-33 columns total
+        df = _generate_chunk(50)
         assert len(df.columns) >= 32
 
     def test_no_missing_values(self):
         """Test that there are no missing values in required columns"""
-        df = generate_dataset(100)
+        df = _generate_chunk(100)
         required_cols = [
             'client_id', 'first_name', 'last_name', 'age',
             'monthly_salary_usd', 'credit_score'
@@ -48,12 +51,12 @@ class TestDataStructure:
 
     def test_unique_client_ids(self):
         """Test that all client IDs are unique"""
-        df = generate_dataset(100)
+        df = _generate_chunk(100)
         assert df['client_id'].is_unique, "Duplicate client IDs found"
 
     def test_client_id_format(self):
         """Test that client IDs follow CLI-XXXXXXXX format"""
-        df = generate_dataset(50)
+        df = _generate_chunk(50)
         pattern = r'^CLI-[A-F0-9]{8}$'
         assert df['client_id'].str.match(pattern).all(), "Invalid client_id format"
 
@@ -70,7 +73,6 @@ class TestClientInfo:
     def test_email_format(self):
         """Test that emails have valid format"""
         df = generate_client_info(50)
-        # Simple email validation: contains @ and .
         assert df['email'].str.contains('@').all(), "Invalid email: missing @"
         assert df['email'].str.contains(r'\.').all(), "Invalid email: missing ."
 
@@ -89,7 +91,6 @@ class TestClientInfo:
         """Test that age follows truncated normal distribution"""
         df = generate_client_info(1000)
         mean_age = df['age'].mean()
-        # Should be around 40 (μ=40 in truncnorm)
         assert 35 < mean_age < 45, f"Mean age {mean_age} outside expected range"
 
 
@@ -118,7 +119,6 @@ class TestIncomeInfo:
         """Test that savings rate is within reasonable bounds"""
         countries = np.array(['Chile'] * 100)
         df = generate_income_info(100, countries)
-        # Should be between -0.2 and 1.0 approximately
         assert df['savings_rate'].min() >= -0.3, "Savings rate too negative"
         assert df['savings_rate'].max() <= 1.0, "Savings rate above 100%"
 
@@ -266,9 +266,8 @@ class TestLogicalRelationships:
 
     def test_high_credit_score_low_default_risk(self):
         """Test that high credit scores correlate with low default risk"""
-        df = generate_dataset(500)
+        df = _generate_chunk(500)
 
-        # Split into high and low credit score groups
         high_score = df[df['credit_score'] > 700]['loan_default_risk'].mean()
         low_score = df[df['credit_score'] < 600]['loan_default_risk'].mean()
 
@@ -276,7 +275,7 @@ class TestLogicalRelationships:
 
     def test_high_dti_high_default_risk(self):
         """Test that high DTI correlates with high default risk"""
-        df = generate_dataset(500)
+        df = _generate_chunk(500)
 
         high_dti = df[df['debt_to_income'] > 0.7]['loan_default_risk'].mean()
         low_dti = df[df['debt_to_income'] < 0.4]['loan_default_risk'].mean()
@@ -285,18 +284,16 @@ class TestLogicalRelationships:
 
     def test_premium_clients_higher_net_worth(self):
         """Test that premium clients have higher average net worth"""
-        df = generate_dataset(500)
+        df = _generate_chunk(500)
 
         premium_nw = df[df['is_premium_client'] == 1]['net_worth_usd'].mean()
         standard_nw = df[df['is_premium_client'] == 0]['net_worth_usd'].mean()
 
-        # Premium should have higher net worth on average
-        # (allowing some variance due to randomness)
         assert premium_nw > standard_nw * 0.8, "Premium doesn't correlate with net worth"
 
     def test_salary_correlates_with_account_balance(self):
         """Test positive correlation between salary and account balance"""
-        df = generate_dataset(300)
+        df = _generate_chunk(300)
         correlation = df[['monthly_salary_usd', 'account_balance_usd']].corr().iloc[0, 1]
         assert correlation > 0.3, f"Weak salary-balance correlation: {correlation}"
 
@@ -306,26 +303,24 @@ class TestDataQuality:
 
     def test_no_duplicate_emails(self):
         """Test that emails are reasonably unique"""
-        df = generate_dataset(200)
+        df = _generate_chunk(200)
         duplicate_count = df['email'].duplicated().sum()
-        # Allow small percentage of duplicates (common names)
         assert duplicate_count < 10, f"Too many duplicate emails: {duplicate_count}"
 
     def test_realistic_salary_by_country(self):
         """Test that salaries vary by country"""
-        df = generate_dataset(500)
+        df = _generate_chunk(500)
 
-        # US should have higher average salary than Colombia
         us_avg = df[df['country'] == 'United States']['monthly_salary_usd'].mean()
         co_avg = df[df['country'] == 'Colombia']['monthly_salary_usd'].mean()
 
         assert us_avg > co_avg * 3, "Country salary differences unrealistic"
 
-    def test_dataset_size_parameter(self):
-        """Test that dataset size parameter works"""
+    def test_chunk_size_parameter(self):
+        """Test that chunk size parameter works"""
         for n in [10, 50, 100, 500]:
-            df = generate_dataset(n)
-            assert len(df) == n, f"Dataset size mismatch: expected {n}, got {len(df)}"
+            df = _generate_chunk(n)
+            assert len(df) == n, f"Chunk size mismatch: expected {n}, got {len(df)}"
 
 
 # =====================
@@ -335,7 +330,7 @@ class TestDataQuality:
 @pytest.fixture
 def sample_dataset():
     """Fixture providing a sample dataset for tests"""
-    return generate_dataset(100)
+    return _generate_chunk(100)
 
 
 # =====================
